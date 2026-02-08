@@ -12,6 +12,35 @@ from .config import THEMES_DIR
 # Theme names must be alphanumeric or hyphen only (no path traversal)
 _THEME_SAFE_PATTERN = re.compile(r"^[a-z0-9\-]+$")
 
+# Fallback themes directory (old themes with alacritty.toml)
+FALLBACK_THEMES_DIR = Path.home() / ".config" / "omarchy" / "themes"
+
+# Alacritty to color name mapping
+ALACRITTY_COLOR_MAP = {
+    "colors.primary.background": "background",
+    "colors.primary.foreground": "foreground",
+    "colors.cursor.cursor": "cursor",
+    "colors.cursor.text": "cursor_text",
+    "colors.selection.background": "selection_background",
+    "colors.selection.text": "selection_foreground",
+    "colors.normal.black": "color0",
+    "colors.normal.red": "color1",
+    "colors.normal.green": "color2",
+    "colors.normal.yellow": "color3",
+    "colors.normal.blue": "color4",
+    "colors.normal.magenta": "color5",
+    "colors.normal.cyan": "color6",
+    "colors.normal.white": "color7",
+    "colors.bright.black": "color8",
+    "colors.bright.red": "color9",
+    "colors.bright.green": "color10",
+    "colors.bright.yellow": "color11",
+    "colors.bright.blue": "color12",
+    "colors.bright.magenta": "color13",
+    "colors.bright.cyan": "color14",
+    "colors.bright.white": "color15",
+}
+
 
 def _resolve_theme_colors_path(current_theme: str) -> Path:
     """Return path to colors.toml for current_theme, only if under THEMES_DIR.
@@ -34,6 +63,100 @@ def _resolve_theme_colors_path(current_theme: str) -> Path:
         except (ValueError, OSError):
             continue
     raise FileNotFoundError(f"colors.toml not found for theme: {current_theme}")
+
+
+def _resolve_fallback_alacritty_path(current_theme: str) -> Path | None:
+    """Return path to alacritty.toml for old themes, only if valid and exists.
+
+    Returns None if no valid alacritty.toml found in fallback directory.
+    """
+    if not _THEME_SAFE_PATTERN.match(current_theme):
+        return None
+
+    fallback_base = FALLBACK_THEMES_DIR.resolve()
+    for candidate in (
+        FALLBACK_THEMES_DIR / current_theme / "alacritty.toml",
+        FALLBACK_THEMES_DIR / current_theme.replace("-", "") / "alacritty.toml",
+    ):
+        try:
+            resolved = candidate.resolve()
+            if resolved.is_relative_to(fallback_base) and candidate.exists():
+                return candidate
+        except (ValueError, OSError):
+            continue
+    return None
+
+
+def parse_alacritty_colors(filepath: Path) -> dict:
+    """Parse alacritty.toml format and convert to colors dict.
+
+    Maps alacritty's [colors.primary], [colors.cursor], [colors.selection],
+    [colors.normal], and [colors.bright] sections to standard color keys.
+    """
+    colors = {}
+    current_section = None
+
+    with open(filepath, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+
+            # Track section headers like [colors.primary]
+            if line.startswith("[") and line.endswith("]"):
+                section_content = line[1:-1]
+                if section_content.startswith("colors."):
+                    current_section = section_content
+                else:
+                    current_section = None
+                continue
+
+            # Parse key = value pairs within color sections
+            if current_section and "=" in line:
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+
+                # Build full path like colors.primary.background
+                full_key = f"{current_section}.{key}"
+
+                # Map to standard color name if known
+                if full_key in ALACRITTY_COLOR_MAP:
+                    color_name = ALACRITTY_COLOR_MAP[full_key]
+                    # Validate it's a hex color
+                    if value.startswith("#") and len(value) == 7:
+                        colors[color_name] = value
+
+    # Add accent color if not present (use a bright color that contrasts with background)
+    if "accent" not in colors:
+        accent = _pick_accent_from_alacritty(colors)
+        if accent:
+            colors["accent"] = accent
+
+    return colors
+
+
+def _pick_accent_from_alacritty(colors: dict) -> str | None:
+    """Pick a suitable accent color from alacritty colors.
+
+    Tries to find a bright color that contrasts well with the background.
+    Falls back to foreground color if no good candidate found.
+    """
+    bg = colors.get("background", "").lower()
+    fg = colors.get("foreground", "")
+
+    # Try bright colors first (color8-15)
+    bright_candidates = [f"color{i}" for i in range(8, 16)]
+
+    for candidate in bright_candidates:
+        if candidate in colors:
+            hex_color = colors[candidate].lower()
+            # Pick a color that's different from background
+            if hex_color != bg:
+                return colors[candidate]
+
+    # Fallback to foreground if no bright color found
+    return fg
 
 
 def parse_toml_colors(filepath: Path) -> dict:
@@ -65,6 +188,27 @@ def get_current_theme() -> str:
         return "gruvbox"
 
 
+def _get_theme_colors(current_theme: str) -> dict:
+    """Get theme colors, trying colors.toml first, then falling back to alacritty.toml.
+
+    Returns dict of color name -> hex value.
+    Raises FileNotFoundError if neither format is found.
+    """
+    # Try colors.toml first (new format)
+    try:
+        colors_file = _resolve_theme_colors_path(current_theme)
+        return parse_toml_colors(colors_file)
+    except FileNotFoundError:
+        pass
+
+    # Fallback to alacritty.toml (old format)
+    alacritty_file = _resolve_fallback_alacritty_path(current_theme)
+    if alacritty_file:
+        return parse_alacritty_colors(alacritty_file)
+
+    raise FileNotFoundError(f"No color configuration found for theme: {current_theme}")
+
+
 def get_weighted_palette() -> list:
     """Get full theme palette with weighted probabilities
 
@@ -78,8 +222,7 @@ def get_weighted_palette() -> list:
     - cursor: none (0) - excluded
     """
     current_theme = get_current_theme()
-    colors_file = _resolve_theme_colors_path(current_theme)
-    all_colors = parse_toml_colors(colors_file)
+    all_colors = _get_theme_colors(current_theme)
 
     # Define weights
     HIGH_WEIGHT = 3
@@ -160,8 +303,7 @@ def get_dominant_colors() -> list:
     - cursor (often a contrasting color)
     """
     current_theme = get_current_theme()
-    colors_file = _resolve_theme_colors_path(current_theme)
-    all_colors = parse_toml_colors(colors_file)
+    all_colors = _get_theme_colors(current_theme)
 
     # Only use dominant colors for the palette
     dominant_keys = ["accent", "foreground", "background", "cursor"]
