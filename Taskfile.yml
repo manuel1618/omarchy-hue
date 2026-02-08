@@ -1,0 +1,24 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+
+version: '3'
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+
+  init:
+    desc: Initialize config directory
+    cmds:
+      - uv run init
+
+  setup:
+    desc: Configure Hue bridge and select room (TUI)
+    cmds:
+      - uv run python omarchy-hue-setup.py
+
+  sync:
+    desc: Sync current theme to selected room
+    cmds:
+      - uv run python omarchy-hue-sync.py
