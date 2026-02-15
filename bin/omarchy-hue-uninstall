@@ -1,0 +1,64 @@
+#!/bin/bash
+# Omarchy-Hue Uninstallation Script
+# Removes scripts from omarchy bins and restores omarchy-theme-set
+
+set -e
+
+# Installation paths
+OMARCHY_BIN_DIR="$HOME/.local/share/omarchy/bin"
+THEME_SET_SCRIPT="$OMARCHY_BIN_DIR/omarchy-theme-set"
+THEME_SET_BACKUP="${THEME_SET_SCRIPT}.backup-hue"
+CONFIG_INSTALL_DIR="$HOME/.config/omarchy/omarchy-hue"
+
+echo "=== Omarchy-Hue Uninstaller ==="
+echo
+
+# Remove scripts from omarchy bin
+if [[ -f "$OMARCHY_BIN_DIR/omarchy-hue-sync" ]]; then
+    rm "$OMARCHY_BIN_DIR/omarchy-hue-sync"
+    echo "✓ Removed omarchy-hue-sync"
+fi
+
+if [[ -f "$OMARCHY_BIN_DIR/omarchy-hue-setup" ]]; then
+    rm "$OMARCHY_BIN_DIR/omarchy-hue-setup"
+    echo "✓ Removed omarchy-hue-setup"
+fi
+
+# Restore omarchy-theme-set from backup
+if [[ -f "$THEME_SET_BACKUP" ]]; then
+    mv "$THEME_SET_BACKUP" "$THEME_SET_SCRIPT"
+    echo "✓ Restored omarchy-theme-set from backup"
+else
+    # Try to remove patch manually if no backup
+    if [[ -f "$THEME_SET_SCRIPT" ]] && grep -q "# Omarchy-Hue Integration" "$THEME_SET_SCRIPT"; then
+        echo "Removing Omarchy-Hue patch from omarchy-theme-set..."
+        # Remove the 4-line patch block
+        sed -i '/# Omarchy-Hue Integration/,+3d' "$THEME_SET_SCRIPT"
+        echo "✓ Removed patch from omarchy-theme-set"
+    fi
+fi
+
+echo
+
+# Ask about config
+if [[ -d "$CONFIG_INSTALL_DIR" ]]; then
+    echo "Configuration directory found at: $CONFIG_INSTALL_DIR"
+    echo "This contains your Hue credentials and settings."
+    echo
+    read -rp "Remove configuration? (y/N): " remove_config
+    
+    if [[ "$remove_config" =~ ^[Yy]$ ]]; then
+        rm -rf "$CONFIG_INSTALL_DIR"
+        echo "✓ Removed configuration directory"
+    else
+        echo "✓ Kept configuration directory"
+        echo "  (You can manually remove it later if needed)"
+    fi
+fi
+
+echo
+echo "=== Uninstallation Complete ==="
+echo "✓ Omarchy-Hue has been removed from your system"
+echo
+echo "If you want to reinstall later, run:"
+echo "  ./bin/omarchy-hue-install"

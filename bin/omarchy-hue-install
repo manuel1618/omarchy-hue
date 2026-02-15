@@ -1,0 +1,132 @@
+#!/bin/bash
+# Omarchy-Hue Installation Script
+# Installs scripts to omarchy bins and patches omarchy-theme-set
+
+set -e
+
+# Get script directory and repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Installation paths
+OMARCHY_BIN_DIR="$HOME/.local/share/omarchy/bin"
+THEME_SET_SCRIPT="$OMARCHY_BIN_DIR/omarchy-theme-set"
+CONFIG_INSTALL_DIR="$HOME/.config/omarchy/omarchy-hue"
+
+echo "=== Omarchy-Hue Installer ==="
+echo
+
+# Check if we're in the omarchy-hue repo
+if [[ ! -d "$REPO_ROOT/lib" ]] || [[ ! -d "$REPO_ROOT/bin" ]]; then
+    echo "Error: This script must be run from the omarchy-hue repository"
+    exit 1
+fi
+
+# Check if omarchy is installed
+if [[ ! -d "$OMARCHY_BIN_DIR" ]]; then
+    echo "Error: Omarchy bin directory not found at: $OMARCHY_BIN_DIR"
+    echo "Please install Omarchy first"
+    exit 1
+fi
+
+# Check dependencies
+echo "Checking dependencies..."
+missing=()
+command -v jq &>/dev/null || missing+=("jq")
+command -v curl &>/dev/null || missing+=("curl")
+command -v notify-send &>/dev/null || missing+=("notify-send")
+
+if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Error: Missing required dependencies: ${missing[*]}"
+    echo "Install with: sudo pacman -S ${missing[*]}"
+    exit 1
+fi
+echo "✓ All dependencies found"
+echo
+
+# Copy scripts to omarchy bin directory
+echo "Installing scripts to $OMARCHY_BIN_DIR..."
+cp "$REPO_ROOT/bin/omarchy-hue-sync" "$OMARCHY_BIN_DIR/"
+cp "$REPO_ROOT/bin/omarchy-hue-setup" "$OMARCHY_BIN_DIR/"
+chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-sync"
+chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-setup"
+echo "✓ Scripts installed"
+echo
+
+# Copy lib directory to config location (for sourcing by installed scripts)
+echo "Installing libraries to $CONFIG_INSTALL_DIR..."
+mkdir -p "$CONFIG_INSTALL_DIR"
+cp -r "$REPO_ROOT/lib" "$CONFIG_INSTALL_DIR/"
+
+# Preserve existing config if any
+if [[ -d "$REPO_ROOT/.config" ]]; then
+    echo "Copying configuration files..."
+    cp -r "$REPO_ROOT/.config" "$CONFIG_INSTALL_DIR/" 2>/dev/null || true
+fi
+
+echo "✓ Libraries installed"
+echo
+
+# Patch omarchy-theme-set
+if [[ ! -f "$THEME_SET_SCRIPT" ]]; then
+    echo "Warning: omarchy-theme-set not found at: $THEME_SET_SCRIPT"
+    echo "You'll need to manually call omarchy-hue-sync after theme changes"
+    echo
+else
+    # Check if already patched
+    if grep -q "# Omarchy-Hue Integration" "$THEME_SET_SCRIPT"; then
+        echo "✓ omarchy-theme-set already patched (skipping)"
+    else
+        # Create backup
+        if [[ ! -f "${THEME_SET_SCRIPT}.backup-hue" ]]; then
+            cp "$THEME_SET_SCRIPT" "${THEME_SET_SCRIPT}.backup-hue"
+            echo "✓ Created backup: ${THEME_SET_SCRIPT}.backup-hue"
+        fi
+        
+        # Find the line with "omarchy-hook theme-set" and insert before it
+        if grep -q "^omarchy-hook theme-set" "$THEME_SET_SCRIPT"; then
+            # Create patch content
+            cat > /tmp/omarchy-hue-patch.txt << 'PATCH_EOF'
+# Omarchy-Hue Integration - Sync lights with theme
+if command -v omarchy-hue-sync &>/dev/null; then
+  (omarchy-hue-sync 2>&1 | logger -t omarchy-hue) &
+fi
+
+PATCH_EOF
+            
+            # Insert before omarchy-hook line
+            sed -i '/^omarchy-hook theme-set/e cat /tmp/omarchy-hue-patch.txt' "$THEME_SET_SCRIPT"
+            rm /tmp/omarchy-hue-patch.txt
+            
+            echo "✓ Patched omarchy-theme-set for automatic sync"
+        else
+            echo "Warning: Could not find 'omarchy-hook theme-set' line in script"
+            echo "Manual integration may be required"
+        fi
+    fi
+    echo
+fi
+
+# Summary
+echo "=== Installation Complete ==="
+echo "✓ Installed to: $OMARCHY_BIN_DIR"
+echo "✓ Libraries at: $CONFIG_INSTALL_DIR"
+echo
+
+# Check if config exists
+if [[ -f "$CONFIG_INSTALL_DIR/.config/hue-credentials.json" ]]; then
+    echo "✓ Configuration found - you're ready to go!"
+    echo
+    echo "Test it: omarchy-theme-set catppuccin"
+else
+    echo "Next step: Run setup to configure your Hue bridge:"
+    echo "  omarchy-hue-setup"
+fi
+
+echo
+echo "Commands available:"
+echo "  omarchy-hue-setup  - Interactive setup (bridge, room, brightness)"
+echo "  omarchy-hue-sync   - Manual sync current theme to lights"
+echo
+echo "View logs: journalctl -t omarchy-hue -f"
+echo "To uninstall: cd $REPO_ROOT && ./bin/omarchy-hue-uninstall"

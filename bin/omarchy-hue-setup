@@ -1,0 +1,459 @@
+#!/bin/bash
+# Omarchy-Hue Interactive Setup TUI
+# Discover bridge, authenticate, select room, configure brightness
+
+# Get script directory and repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source libraries
+source "$REPO_ROOT/lib/config.sh"
+source "$REPO_ROOT/lib/hue-api.sh"
+source "$REPO_ROOT/lib/colors.sh"
+
+# Global state
+BRIDGE_IP=""
+USERNAME=""
+ROOM_ID=""
+ROOM_NAME=""
+BRIGHTNESS=""
+
+# ============================================================================
+# UI Functions
+# ============================================================================
+
+clear_screen() {
+    clear
+}
+
+print_header() {
+    echo "============================================================"
+    echo "       Omarchy-Hue Theme Synchronization Setup"
+    echo "============================================================"
+    echo
+}
+
+print_status() {
+    echo "Current Status:"
+    echo "------------------------------------------------------------"
+    
+    if [[ -n "$BRIDGE_IP" ]]; then
+        echo "  Bridge: $BRIDGE_IP"
+        if [[ -n "$USERNAME" ]]; then
+            echo "  Connected: Yes"
+        else
+            echo "  Connected: No"
+        fi
+    else
+        echo "  Bridge: Not connected"
+    fi
+    
+    local theme
+    theme=$(colors_get_current_theme 2>/dev/null || echo "Unknown")
+    echo "  Theme: $theme"
+    
+    if [[ -n "$ROOM_NAME" ]]; then
+        echo "  Room: $ROOM_NAME"
+    else
+        echo "  Room: Not selected"
+    fi
+    
+    echo "  Brightness: ${BRIGHTNESS}% (±$(config_get_variation)%)"
+    echo "------------------------------------------------------------"
+    echo
+}
+
+show_menu() {
+    echo "Options:"
+    echo "  1. Discover Hue Bridge"
+    echo "  2. Connect to Bridge"
+    echo "  3. Select Room"
+    echo "  4. Sync Current Theme"
+    echo "  5. Set Brightness (current: ${BRIGHTNESS}%)"
+    echo "  6. Exit"
+    echo
+    
+    while true; do
+        read -rp "Enter choice (1-6): " choice
+        if [[ "$choice" =~ ^[1-6]$ ]]; then
+            echo "$choice"
+            return
+        fi
+        echo "Invalid choice. Please enter 1-6."
+    done
+}
+
+# ============================================================================
+# Feature Functions
+# ============================================================================
+
+discover_bridge() {
+    clear_screen
+    print_header
+    
+    echo "🔍 Searching for Hue bridge on your network..."
+    echo "   This may take a few seconds..."
+    echo
+    
+    local discovered_ip
+    discovered_ip=$(hue_discover)
+    
+    if [[ -n "$discovered_ip" ]]; then
+        if hue_test_connection "$discovered_ip"; then
+            BRIDGE_IP="$discovered_ip"
+            echo "✓ Bridge found at: $BRIDGE_IP"
+            echo "  Connection test: OK"
+        else
+            echo "⚠ Found bridge at $discovered_ip but cannot connect"
+            echo "  Please check your network connection"
+        fi
+    else
+        echo "✗ No bridge found on your network"
+        echo
+        echo "Troubleshooting:"
+        echo "  • Make sure the bridge is powered on"
+        echo "  • Check that it's connected to your network"
+        echo "  • Ensure you're on the same network as the bridge"
+    fi
+}
+
+connect_bridge() {
+    clear_screen
+    print_header
+    
+    if [[ -z "$BRIDGE_IP" ]]; then
+        echo "⚠ Please discover the bridge first or enter IP manually:"
+        read -rp "   Bridge IP (or press Enter to cancel): " manual_ip
+        
+        if [[ -z "$manual_ip" ]]; then
+            return
+        fi
+        
+        if ! hue_test_connection "$manual_ip"; then
+            echo
+            echo "✗ Cannot connect to bridge at $manual_ip"
+            return
+        fi
+        
+        BRIDGE_IP="$manual_ip"
+    fi
+    
+    echo "🔗 Connecting to bridge..."
+    echo "   Bridge IP: $BRIDGE_IP"
+    echo
+    echo "⚠ IMPORTANT: Press the link button on your Hue bridge"
+    echo "   (the round button on top of the bridge)"
+    echo
+    read -rp "   Press Enter when ready..."
+    echo
+    
+    local registered_username
+    registered_username=$(hue_register "$BRIDGE_IP" 2>&1)
+    
+    if [[ $? -eq 0 ]] && [[ -n "$registered_username" ]]; then
+        USERNAME="$registered_username"
+        config_save_credentials "$BRIDGE_IP" "$USERNAME"
+        echo "✓ Successfully connected!"
+        echo "   Username: ${USERNAME:0:20}..."
+        echo "   Credentials saved for future use"
+    else
+        echo "✗ Registration failed"
+        echo "   Error: $registered_username"
+        echo
+        echo "   Please make sure you pressed the link button"
+        echo "   You have 30 seconds after pressing it to complete"
+    fi
+}
+
+select_room() {
+    clear_screen
+    print_header
+    
+    if [[ -z "$USERNAME" ]]; then
+        echo "⚠ Please connect to the bridge first"
+        return
+    fi
+    
+    echo "📍 Fetching rooms from bridge..."
+    echo
+    
+    local rooms
+    rooms=$(hue_get_rooms "$BRIDGE_IP" "$USERNAME")
+    
+    if [[ "$rooms" == "[]" ]] || [[ -z "$rooms" ]]; then
+        echo "✗ No rooms found on your bridge"
+        return
+    fi
+    
+    local room_count
+    room_count=$(echo "$rooms" | jq '. | length')
+    
+    echo "Found $room_count room(s):"
+    echo
+    
+    # Display rooms
+    local i=1
+    while IFS= read -r room; do
+        local name light_count
+        name=$(echo "$room" | jq -r '.name')
+        light_count=$(echo "$room" | jq '.lights | length')
+        echo "  $i. $name ($light_count light$([ $light_count -ne 1 ] && echo "s" || echo ""))"
+        ((i++))
+    done < <(echo "$rooms" | jq -c '.[]')
+    
+    echo "  0. Cancel"
+    echo
+    
+    while true; do
+        read -rp "Select room: " choice
+        
+        if [[ "$choice" == "0" ]]; then
+            return
+        fi
+        
+        if [[ "$choice" =~ ^[0-9]+$ ]] && [[ $choice -ge 1 ]] && [[ $choice -le $room_count ]]; then
+            local selected_room
+            selected_room=$(echo "$rooms" | jq -c ".[$((choice - 1))]")
+            ROOM_ID=$(echo "$selected_room" | jq -r '.id')
+            ROOM_NAME=$(echo "$selected_room" | jq -r '.name')
+            config_save_room "$ROOM_ID" "$ROOM_NAME"
+            echo
+            echo "✓ Selected: $ROOM_NAME"
+            return
+        else
+            echo "Invalid choice. Please enter a number between 0 and $room_count."
+        fi
+    done
+}
+
+sync_theme() {
+    clear_screen
+    print_header
+    
+    if [[ -z "$USERNAME" ]]; then
+        echo "⚠ Please connect to the bridge first"
+        return
+    fi
+    
+    if [[ -z "$ROOM_ID" ]]; then
+        echo "⚠ Please select a room first"
+        return
+    fi
+    
+    local theme
+    theme=$(colors_get_current_theme)
+    echo "🎨 Current theme: $theme"
+    echo
+    
+    # Get palette
+    local palette
+    palette=$(colors_get_palette)
+    
+    if [[ -z "$palette" ]]; then
+        echo "✗ No colors found for current theme"
+        return
+    fi
+    
+    local palette_count
+    palette_count=$(echo "$palette" | wc -l)
+    echo "Weighted palette: $palette_count colors"
+    echo
+    
+    # Get room lights
+    echo "📍 Fetching lights in $ROOM_NAME..."
+    local lights
+    lights=$(hue_get_room_lights "$ROOM_ID" "$BRIDGE_IP" "$USERNAME")
+    
+    if [[ "$lights" == "[]" ]] || [[ -z "$lights" ]]; then
+        echo "✗ No lights found in selected room"
+        return
+    fi
+    
+    # Filter color-capable lights
+    local light_ids
+    light_ids=$(echo "$lights" | jq -r '.[].id')
+    
+    local color_lights=()
+    while IFS= read -r light_id; do
+        if hue_light_supports_color "$light_id" "$BRIDGE_IP" "$USERNAME"; then
+            color_lights+=("$light_id")
+        fi
+    done <<< "$light_ids"
+    
+    local total_lights
+    total_lights=$(echo "$lights" | jq '. | length')
+    echo "Found $total_lights light(s), ${#color_lights[@]} support color"
+    echo
+    
+    if [[ ${#color_lights[@]} -eq 0 ]]; then
+        echo "⚠ No color-capable lights in this room"
+        echo "   Only color bulbs can be synced"
+        return
+    fi
+    
+    # Sync lights
+    echo "💡 Syncing colors to lights..."
+    local variation
+    variation=$(config_get_variation)
+    local min_bri=$((BRIGHTNESS - variation))
+    local max_bri=$((BRIGHTNESS + variation))
+    min_bri=$((min_bri < 0 ? 0 : min_bri))
+    max_bri=$((max_bri > 100 ? 100 : max_bri))
+    echo "   Brightness: ${BRIGHTNESS}% (range: ${min_bri}%-${max_bri}%)"
+    echo "   Colors will have ±5% variation for variety"
+    echo
+    
+    local success_count=0
+    
+    for light_id in "${color_lights[@]}"; do
+        # Get light name
+        local light_name
+        light_name=$(echo "$lights" | jq -r --arg id "$light_id" '.[] | select(.id == $id) | .name')
+        
+        # Pick weighted color
+        local color_info
+        color_info=$(colors_pick_weighted "$palette")
+        IFS=':' read -r color_name hex_color <<< "$color_info"
+        
+        # Add variation
+        hex_color=$(colors_add_variation "$hex_color" 5)
+        
+        # Convert to XY
+        local xy
+        xy=$(colors_hex_to_xy "$hex_color")
+        read -r xy_x xy_y <<< "$xy"
+        
+        # Clamp to gamut
+        xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
+        read -r xy_x xy_y <<< "$xy"
+        
+        # Get randomized brightness
+        local light_brightness
+        light_brightness=$(colors_get_randomized_brightness "$BRIGHTNESS" "$variation")
+        
+        # Round xy values
+        xy_x=$(printf "%.4f" "$xy_x")
+        xy_y=$(printf "%.4f" "$xy_y")
+        
+        # Build state JSON
+        local state_json
+        state_json=$(jq -n \
+            --argjson bri "$light_brightness" \
+            --argjson x "$xy_x" \
+            --argjson y "$xy_y" \
+            '{on: true, bri: $bri, xy: [$x, $y]}')
+        
+        # Apply to light
+        if hue_set_light_state "$light_id" "$state_json" "$BRIDGE_IP" "$USERNAME"; then
+            local bri_percent=$(( (light_brightness * 100) / 254 ))
+            echo "  ✓ $light_name → $color_name ($hex_color) @ ${bri_percent}%"
+            ((success_count++))
+        else
+            echo "  ✗ $light_name → Failed"
+        fi
+    done
+    
+    echo
+    echo "✓ Synced $success_count/${#color_lights[@]} lights"
+    echo "  with $theme weighted palette colors!"
+}
+
+set_brightness() {
+    clear_screen
+    print_header
+    
+    echo "💡 Brightness Settings"
+    echo "------------------------------------------------------------"
+    echo "Current brightness: ${BRIGHTNESS}%"
+    local variation
+    variation=$(config_get_variation)
+    echo "Variation: ±${variation}%"
+    echo
+    echo "Each light will get a random brightness between"
+    echo "$((BRIGHTNESS - variation < 0 ? 0 : BRIGHTNESS - variation))% and $((BRIGHTNESS + variation > 100 ? 100 : BRIGHTNESS + variation))%"
+    echo
+    
+    while true; do
+        read -rp "Enter new brightness (1-100, or press Enter to keep ${BRIGHTNESS}%): " new_brightness
+        
+        if [[ -z "$new_brightness" ]]; then
+            echo "Brightness unchanged."
+            return
+        fi
+        
+        if [[ "$new_brightness" =~ ^[0-9]+$ ]] && [[ $new_brightness -ge 1 ]] && [[ $new_brightness -le 100 ]]; then
+            BRIGHTNESS="$new_brightness"
+            config_save_brightness "$BRIGHTNESS"
+            echo "✓ Brightness set to ${BRIGHTNESS}%"
+            echo "  Lights will vary between $((BRIGHTNESS - variation < 0 ? 0 : BRIGHTNESS - variation))% and $((BRIGHTNESS + variation > 100 ? 100 : BRIGHTNESS + variation))%"
+            return
+        else
+            echo "Please enter a value between 1 and 100."
+        fi
+    done
+}
+
+# ============================================================================
+# Main Loop
+# ============================================================================
+
+init_state() {
+    # Check dependencies
+    if ! config_check_dependencies; then
+        exit 1
+    fi
+    
+    # Load existing config
+    BRIDGE_IP=$(config_get_bridge_ip)
+    USERNAME=$(config_get_username)
+    ROOM_ID=$(config_get_room_id)
+    ROOM_NAME=$(config_get_room_name)
+    BRIGHTNESS=$(config_get_brightness)
+}
+
+main() {
+    init_state
+    
+    while true; do
+        clear_screen
+        print_header
+        print_status
+        
+        choice=$(show_menu)
+        
+        case "$choice" in
+            1)
+                discover_bridge
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            2)
+                connect_bridge
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            3)
+                select_room
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            4)
+                sync_theme
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            5)
+                set_brightness
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            6)
+                clear_screen
+                echo
+                echo "👋 Goodbye!"
+                echo
+                exit 0
+                ;;
+        esac
+    done
+}
+
+# Trap Ctrl+C
+trap 'echo -e "\n\n👋 Goodbye!"; exit 0' INT
+
+main "$@"

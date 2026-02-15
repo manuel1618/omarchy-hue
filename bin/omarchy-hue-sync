@@ -1,0 +1,153 @@
+#!/bin/bash
+# Omarchy-Hue Quick Sync
+# One-liner to sync current theme to selected room
+# Designed to be called by omarchy-theme-set
+
+# Get script directory and repo root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Source libraries
+source "$REPO_ROOT/lib/config.sh" 2>/dev/null || {
+    # Try alternative path if installed to omarchy bins
+    REPO_ROOT="$HOME/.config/omarchy/omarchy-hue"
+    source "$REPO_ROOT/lib/config.sh" 2>/dev/null || exit 1
+}
+source "$REPO_ROOT/lib/hue-api.sh"
+source "$REPO_ROOT/lib/colors.sh"
+
+# ============================================================================
+# Error Notification Helper
+# ============================================================================
+
+notify_error() {
+    local message="$1"
+    if command -v notify-send &>/dev/null; then
+        notify-send -u normal "Omarchy-Hue" "$message" 2>/dev/null
+    fi
+}
+
+# ============================================================================
+# Main Sync Logic
+# ============================================================================
+
+main() {
+    # Silent dependency check
+    if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
+        # Missing dependencies - fail silently
+        exit 1
+    fi
+    
+    # Load credentials
+    if ! config_has_credentials; then
+        notify_error "Not configured. Run: omarchy-hue-setup"
+        exit 1
+    fi
+    
+    local bridge_ip username
+    bridge_ip=$(config_get_bridge_ip)
+    username=$(config_get_username)
+    
+    # Load room
+    if ! config_has_room; then
+        notify_error "No room selected. Run: omarchy-hue-setup"
+        exit 1
+    fi
+    
+    local room_id
+    room_id=$(config_get_room_id)
+    
+    # Get current theme
+    local theme
+    theme=$(colors_get_current_theme)
+    
+    # Get theme colors
+    local palette
+    palette=$(colors_get_palette)
+    
+    if [[ -z "$palette" ]]; then
+        notify_error "No colors found for theme: $theme"
+        exit 1
+    fi
+    
+    # Get brightness
+    local base_brightness
+    base_brightness=$(config_get_brightness)
+    
+    # Get room lights
+    local lights
+    lights=$(hue_get_room_lights "$room_id" "$bridge_ip" "$username")
+    
+    if [[ "$lights" == "[]" ]] || [[ -z "$lights" ]]; then
+        notify_error "No lights found in selected room"
+        exit 1
+    fi
+    
+    # Filter to color-capable lights
+    local light_ids
+    light_ids=$(echo "$lights" | jq -r '.[].id' 2>/dev/null)
+    
+    local color_lights=()
+    while IFS= read -r light_id; do
+        if hue_light_supports_color "$light_id" "$bridge_ip" "$username"; then
+            color_lights+=("$light_id")
+        fi
+    done <<< "$light_ids"
+    
+    if [[ ${#color_lights[@]} -eq 0 ]]; then
+        notify_error "No color-capable lights in room"
+        exit 1
+    fi
+    
+    # Sync each light
+    local success_count=0
+    local variation
+    variation=$(config_get_variation)
+    
+    for light_id in "${color_lights[@]}"; do
+        # Pick weighted random color
+        local color_info
+        color_info=$(colors_pick_weighted "$palette")
+        IFS=':' read -r color_name hex_color <<< "$color_info"
+        
+        # Add color variation (±5%)
+        hex_color=$(colors_add_variation "$hex_color" 5)
+        
+        # Convert to XY
+        local xy
+        xy=$(colors_hex_to_xy "$hex_color")
+        read -r xy_x xy_y <<< "$xy"
+        
+        # Clamp to gamut
+        xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
+        read -r xy_x xy_y <<< "$xy"
+        
+        # Get randomized brightness
+        local light_brightness
+        light_brightness=$(colors_get_randomized_brightness "$base_brightness" "$variation")
+        
+        # Round xy values to 4 decimals
+        xy_x=$(printf "%.4f" "$xy_x")
+        xy_y=$(printf "%.4f" "$xy_y")
+        
+        # Build state JSON
+        local state_json
+        state_json=$(jq -n \
+            --argjson bri "$light_brightness" \
+            --argjson x "$xy_x" \
+            --argjson y "$xy_y" \
+            '{on: true, bri: $bri, xy: [$x, $y]}')
+        
+        # Apply to light
+        if hue_set_light_state "$light_id" "$state_json" "$bridge_ip" "$username"; then
+            ((success_count++))
+        fi
+    done
+    
+    # Log success (journalctl)
+    logger -t omarchy-hue "Synced $success_count/${#color_lights[@]} lights with $theme theme @ ${base_brightness}%"
+    
+    exit 0
+}
+
+main "$@"
