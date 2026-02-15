@@ -64,14 +64,15 @@ print_status() {
 }
 
 show_menu() {
-    echo "Options:"
-    echo "  1. Discover Hue Bridge"
-    echo "  2. Connect to Bridge"
-    echo "  3. Select Room"
-    echo "  4. Sync Current Theme"
-    echo "  5. Set Brightness (current: ${BRIGHTNESS}%)"
-    echo "  6. Exit"
-    echo
+    # Print menu to stderr so it's not captured by command substitution
+    echo "Options:" >&2
+    echo "  1. Discover Hue Bridge" >&2
+    echo "  2. Connect to Bridge" >&2
+    echo "  3. Select Room" >&2
+    echo "  4. Sync Current Theme" >&2
+    echo "  5. Set Brightness (current: ${BRIGHTNESS}%)" >&2
+    echo "  6. Exit" >&2
+    echo >&2
     
     while true; do
         read -rp "Enter choice (1-6): " choice
@@ -79,7 +80,7 @@ show_menu() {
             echo "$choice"
             return
         fi
-        echo "Invalid choice. Please enter 1-6."
+        echo "Invalid choice. Please enter 1-6." >&2
     done
 }
 
