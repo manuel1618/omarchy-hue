@@ -163,21 +163,21 @@ colors_get_palette() {
     
     # Build weighted palette
     # Format: name:hex:weight (one per line)
-    # Weights: foreground/background=3, accent=1, color0-15=1, selection=0.3, cursor=0 (excluded)
-    
+    # Weights: foreground/background=3, color0-15=0.3, selection=3, cursor=0 (excluded)
+        
     while IFS='=' read -r key value; do
         case "$key" in
-            foreground|background)
+            ascent|background)
                 echo "$key:$value:3"
                 ;;
-            accent)
+            foreground)
                 echo "$key:$value:1"
                 ;;
             color[0-9]|color1[0-5])
-                echo "$key:$value:1"
+                echo "$key:$value:0.3"
                 ;;
             selection_foreground|selection_background)
-                echo "$key:$value:0.3"
+                echo "$key:$value:3"
                 ;;
             cursor|cursor_text)
                 # Excluded (weight 0) - skip
