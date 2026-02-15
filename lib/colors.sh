@@ -337,8 +337,9 @@ colors_clamp_gamut() {
     
     # Clamp to Philips Hue Gamut C limits using bash string comparison
     # Convert 0.XXXX to integer for comparison (remove 0. prefix)
-    local x_int=${xy_x#0.}
-    local y_int=${xy_y#0.}
+    # Use 10# prefix to force base-10 interpretation (avoid octal errors with leading zeros)
+    local x_int=$((10#${xy_x#0.}))
+    local y_int=$((10#${xy_y#0.}))
     
     # Clamp X: 0.1000 to 0.8000
     if [[ $x_int -lt 1000 ]]; then
