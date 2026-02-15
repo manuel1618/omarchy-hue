@@ -3,6 +3,9 @@
 # Set all lights in the configured room to default warm white at default brightness.
 # Uses only on/bri/ct (no color xy) so it works on white-only and color lamps.
 
+# Force C locale for consistent decimal formatting
+export LC_NUMERIC=C
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 

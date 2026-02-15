@@ -2,6 +2,9 @@
 # Omarchy-Hue Interactive Setup TUI
 # Discover bridge, authenticate, select room, configure brightness
 
+# Force C locale for consistent decimal formatting
+export LC_NUMERIC=C
+
 # Get script directory and repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -332,9 +335,9 @@ sync_theme() {
         local light_brightness
         light_brightness=$(colors_get_randomized_brightness "$BRIGHTNESS" "$variation")
         
-        # Round xy values
-        xy_x=$(printf "%.4f" "$xy_x")
-        xy_y=$(printf "%.4f" "$xy_y")
+        # Round xy values (force C locale for decimal point)
+        xy_x=$(LC_NUMERIC=C printf "%.4f" "$xy_x")
+        xy_y=$(LC_NUMERIC=C printf "%.4f" "$xy_y")
         
         # Build state JSON
         local state_json

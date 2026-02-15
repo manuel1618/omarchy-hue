@@ -3,6 +3,9 @@
 # One-liner to sync current theme to selected room
 # Designed to be called by omarchy-theme-set
 
+# Force C locale for consistent decimal formatting
+export LC_NUMERIC=C
+
 # Get script directory and repo root
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
