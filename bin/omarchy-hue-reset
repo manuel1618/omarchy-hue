@@ -1,0 +1,83 @@
+#!/bin/bash
+# Omarchy-Hue Reset Room
+# Set all lights in the configured room to default warm white at default brightness.
+# Uses only on/bri/ct (no color xy) so it works on white-only and color lamps.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+source "$REPO_ROOT/lib/config.sh" 2>/dev/null || {
+    REPO_ROOT="$HOME/.config/omarchy/omarchy-hue"
+    source "$REPO_ROOT/lib/config.sh" 2>/dev/null || exit 1
+}
+source "$REPO_ROOT/lib/hue-api.sh"
+
+# Warm white color temperature (mired). Hue range 153–500; higher = warmer.
+DEFAULT_CT_WARM=400
+
+main() {
+    if ! command -v jq &>/dev/null || ! command -v curl &>/dev/null; then
+        echo "Error: jq and curl are required." >&2
+        exit 1
+    fi
+
+    if ! config_has_credentials; then
+        echo "Not configured. Run: omarchy-hue-setup" >&2
+        exit 1
+    fi
+
+    if ! config_has_room; then
+        echo "No room selected. Run: omarchy-hue-setup" >&2
+        exit 1
+    fi
+
+    local bridge_ip username room_id
+    bridge_ip=$(config_get_bridge_ip)
+    username=$(config_get_username)
+    room_id=$(config_get_room_id)
+
+    local brightness_pct
+    brightness_pct=$(config_get_brightness)
+    local bri=$(( (brightness_pct * 254) / 100 ))
+    [[ "$bri" -gt 254 ]] && bri=254
+    [[ "$bri" -lt 1 ]] && bri=1
+
+    local lights
+    lights=$(hue_get_room_lights "$room_id" "$bridge_ip" "$username")
+
+    if [[ "$lights" == "[]" ]] || [[ -z "$lights" ]]; then
+        echo "No lights found in selected room." >&2
+        exit 1
+    fi
+
+    local count=0
+    local total=0
+    while IFS= read -r line; do
+        [[ -z "$line" ]] && continue
+        local light_id has_ct
+        light_id=$(echo "$line" | jq -r '.id')
+        has_ct=$(echo "$line" | jq -r '.has_ct')
+        ((total++))
+
+        local state_json
+        if [[ "$has_ct" == "true" ]]; then
+            state_json=$(jq -n \
+                --argjson bri "$bri" \
+                --argjson ct "$DEFAULT_CT_WARM" \
+                '{on: true, bri: $bri, ct: $ct}')
+        else
+            state_json=$(jq -n \
+                --argjson bri "$bri" \
+                '{on: true, bri: $bri}')
+        fi
+
+        if hue_set_light_state "$light_id" "$state_json" "$bridge_ip" "$username"; then
+            ((count++))
+        fi
+    done < <(echo "$lights" | jq -c '.[] | {id: .id, has_ct: (.state | has("ct"))}')
+
+    logger -t omarchy-hue "Reset $count/$total lights to warm white @ ${brightness_pct}%"
+    exit 0
+}
+
+main "$@"
