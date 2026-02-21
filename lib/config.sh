@@ -3,8 +3,14 @@
 # Handles reading/writing JSON config files using jq
 
 # Get the repo root directory (parent of lib/)
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-CONFIG_DIR="$REPO_ROOT/.config"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "$SCRIPT_DIR" == *"/omarchy-hue/lib" ]]; then
+    CONFIG_DIR="$HOME/.config/omarchy/omarchy-hue/.config"
+else
+    CONFIG_DIR="$SCRIPT_DIR/../.config"
+    CONFIG_DIR="$(cd "$CONFIG_DIR" && pwd)"
+fi
 
 # Config file paths
 HUE_CREDENTIALS="$CONFIG_DIR/hue-credentials.json"
