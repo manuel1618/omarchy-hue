@@ -95,7 +95,7 @@ hue_api_get() {
         return 1
     fi
     
-    curl -s --max-time 10 \
+    curl -s --connect-timeout 2 --max-time 5 \
         "http://$bridge_ip/api/$username$endpoint" 2>/dev/null
 }
 
@@ -110,7 +110,7 @@ hue_api_put() {
         return 1
     fi
     
-    curl -s --max-time 10 \
+    curl -s --connect-timeout 2 --max-time 5 \
         -X PUT \
         -H "Content-Type: application/json" \
         -d "$data" \
@@ -199,6 +199,15 @@ hue_set_light_state() {
     local username="$4"
     
     hue_api_put "/lights/$light_id/state" "$state_json" "$bridge_ip" "$username" >/dev/null
+}
+
+hue_set_group_action() {
+    local group_id="$1"
+    local action_json="$2"
+    local bridge_ip="$3"
+    local username="$4"
+    
+    hue_api_put "/groups/$group_id/action" "$action_json" "$bridge_ip" "$username" >/dev/null
 }
 
 hue_light_supports_color() {

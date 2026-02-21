@@ -102,50 +102,47 @@ main() {
         exit 1
     fi
     
-    # Sync each light
-    local success_count=0
+    # Sync room via group action (1 request instead of per-light)
     local variation
     variation=$(config_get_variation)
     
-    for light_id in "${color_lights[@]}"; do
-        # Pick weighted random color
-        local color_info
-        color_info=$(colors_pick_weighted "$palette")
-        IFS=':' read -r color_name hex_color <<< "$color_info"
-        
-        # Add color variation (±5%)
-        hex_color=$(colors_add_variation "$hex_color" 5)
-        
-        # Convert to XY
-        local xy
-        xy=$(colors_hex_to_xy "$hex_color")
-        read -r xy_x xy_y <<< "$xy"
-        
-        # Clamp to gamut
-        xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
-        read -r xy_x xy_y <<< "$xy"
-        
-        # Get randomized brightness
-        local light_brightness
-        light_brightness=$(colors_get_randomized_brightness "$base_brightness" "$variation")
-        
-        # Round xy values to 4 decimals
-        xy_x=$(printf "%.4f" "$xy_x")
-        xy_y=$(printf "%.4f" "$xy_y")
-        
-        # Build state JSON
-        local state_json
-        state_json=$(jq -n \
-            --argjson bri "$light_brightness" \
-            --argjson x "$xy_x" \
-            --argjson y "$xy_y" \
-            '{on: true, bri: $bri, xy: [$x, $y]}')
-        
-        # Apply to light
-        if hue_set_light_state "$light_id" "$state_json" "$bridge_ip" "$username"; then
-            ((success_count++))
-        fi
-    done
+    # Pick weighted random color
+    local color_info
+    color_info=$(colors_pick_weighted "$palette")
+    IFS=':' read -r color_name hex_color <<< "$color_info"
+    
+    # Add color variation (±5%)
+    hex_color=$(colors_add_variation "$hex_color" 5)
+    
+    # Convert to XY
+    local xy
+    xy=$(colors_hex_to_xy "$hex_color")
+    read -r xy_x xy_y <<< "$xy"
+    
+    # Clamp to gamut
+    xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
+    read -r xy_x xy_y <<< "$xy"
+    
+    # Get brightness
+    local brightness
+    brightness=$(colors_get_randomized_brightness "$base_brightness" "$variation")
+    
+    # Round xy values to 4 decimals
+    xy_x=$(printf "%.4f" "$xy_x")
+    xy_y=$(printf "%.4f" "$xy_y")
+    
+    # Build action JSON
+    local action_json
+    action_json=$(jq -n \
+        --argjson bri "$brightness" \
+        --argjson x "$xy_x" \
+        --argjson y "$xy_y" \
+        '{on: true, bri: $bri, xy: [$x, $y]}')
+    
+    # Apply to whole room in 1 request
+    hue_set_group_action "$room_id" "$action_json" "$bridge_ip" "$username"
+    
+    local success_count=${#color_lights[@]}
     
     # Log success (journalctl)
     logger -t omarchy-hue "Synced $success_count/${#color_lights[@]} lights with $theme theme @ ${base_brightness}%"
