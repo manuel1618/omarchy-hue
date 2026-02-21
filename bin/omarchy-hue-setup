@@ -224,6 +224,7 @@ select_room() {
             ROOM_ID=$(echo "$selected_room" | jq -r '.id')
             ROOM_NAME=$(echo "$selected_room" | jq -r '.name')
             config_save_room "$ROOM_ID" "$ROOM_NAME"
+            config_refresh_room_lights "$ROOM_ID" "$BRIDGE_IP" "$USERNAME" >/dev/null
             echo
             echo "✓ Selected: $ROOM_NAME"
             return

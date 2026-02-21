@@ -77,32 +77,29 @@ main() {
     local base_brightness
     base_brightness=$(config_get_brightness)
     
-    # Get room lights
+    # Get room lights (use cache if available)
     local lights
-    lights=$(hue_get_room_lights "$room_id" "$bridge_ip" "$username")
+    lights=$(config_get_cached_room_lights "$room_id")
+    
+    if [[ -z "$lights" ]] || [[ "$lights" == "[]" ]]; then
+        lights=$(config_refresh_room_lights "$room_id" "$bridge_ip" "$username")
+    fi
     
     if [[ "$lights" == "[]" ]] || [[ -z "$lights" ]]; then
         notify_error "No lights found in selected room"
         exit 1
     fi
     
-    # Filter to color-capable lights
-    local light_ids
-    light_ids=$(echo "$lights" | jq -r '.[].id' 2>/dev/null)
+    # Count lights in room
+    local light_count
+    light_count=$(echo "$lights" | jq 'length')
     
-    local color_lights=()
-    while IFS= read -r light_id; do
-        if hue_light_supports_color "$light_id" "$bridge_ip" "$username"; then
-            color_lights+=("$light_id")
-        fi
-    done <<< "$light_ids"
-    
-    if [[ ${#color_lights[@]} -eq 0 ]]; then
-        notify_error "No color-capable lights in room"
+    if [[ "$light_count" -eq 0 ]]; then
+        notify_error "No lights in room"
         exit 1
     fi
     
-    # Sync room via group action (1 request instead of per-light)
+    # Sync room via group action (1 request)
     local variation
     variation=$(config_get_variation)
     
@@ -142,7 +139,7 @@ main() {
     # Apply to whole room in 1 request
     hue_set_group_action "$room_id" "$action_json" "$bridge_ip" "$username"
     
-    local success_count=${#color_lights[@]}
+    local success_count=$light_count
     
     # Log success (journalctl)
     logger -t omarchy-hue "Synced $success_count/${#color_lights[@]} lights with $theme theme @ ${base_brightness}%"

@@ -16,6 +16,7 @@ fi
 HUE_CREDENTIALS="$CONFIG_DIR/hue-credentials.json"
 ROOM_CONFIG="$CONFIG_DIR/selected_room.json"
 BRIGHTNESS_CONFIG="$CONFIG_DIR/brightness.json"
+ROOM_LIGHTS_CACHE="$CONFIG_DIR/room-lights.json"
 
 # Defaults
 DEFAULT_BRIGHTNESS=20
@@ -82,6 +83,37 @@ config_save_room() {
 
 config_has_room() {
     [[ -f "$ROOM_CONFIG" ]] && [[ -n "$(config_get_room_id)" ]]
+}
+
+config_get_cached_room_lights() {
+    local room_id="$1"
+    if [[ -f "$ROOM_LIGHTS_CACHE" ]]; then
+        local cached_room
+        cached_room=$(jq -r '.room_id // empty' "$ROOM_LIGHTS_CACHE" 2>/dev/null)
+        if [[ "$cached_room" == "$room_id" ]]; then
+            jq -r '.lights // empty' "$ROOM_LIGHTS_CACHE" 2>/dev/null
+        fi
+    fi
+}
+
+config_save_room_lights() {
+    local room_id="$1"
+    local lights_json="$2"
+    
+    echo "$lights_json" | jq -s \
+        --arg rid "$room_id" \
+        '{room_id: $rid, lights: .[0]}' > "$ROOM_LIGHTS_CACHE"
+}
+
+config_refresh_room_lights() {
+    local room_id="$1"
+    local bridge_ip="$2"
+    local username="$3"
+    
+    local lights
+    lights=$(hue_get_room_lights "$room_id" "$bridge_ip" "$username")
+    config_save_room_lights "$room_id" "$lights"
+    echo "$lights"
 }
 
 # ============================================================================

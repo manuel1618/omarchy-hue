@@ -94,18 +94,16 @@ else
         
         # Find the line with "omarchy-hook theme-set" and insert before it
         if grep -q "^omarchy-hook theme-set" "$THEME_SET_SCRIPT"; then
-            # Create patch content
-            cat > /tmp/omarchy-hue-patch.txt << 'PATCH_EOF'
-# Omarchy-Hue Integration - Sync lights with theme
-if command -v omarchy-hue-sync &>/dev/null; then
-  (omarchy-hue-sync 2>&1 | logger -t omarchy-hue) &
-fi
-
-PATCH_EOF
+            # Remove any existing omarchy-hue integration
+            sed -i '/# Omarchy-Hue Integration/,/^fi$/d' "$THEME_SET_SCRIPT"
             
-            # Insert before omarchy-hook line
-            sed -i '/^omarchy-hook theme-set/e cat /tmp/omarchy-hue-patch.txt' "$THEME_SET_SCRIPT"
-            rm /tmp/omarchy-hue-patch.txt
+            # Insert at TOP of script (runs in parallel with rest)
+            sed -i '1a\
+# Omarchy-Hue Integration - Sync lights with theme (runs in parallel)\
+if command -v omarchy-hue-sync &>/dev/null; then\
+  (omarchy-hue-sync 2>&1 | logger -t omarchy-hue) &\
+fi\
+' "$THEME_SET_SCRIPT"
             
             echo "✓ Patched omarchy-theme-set for automatic sync"
         else
