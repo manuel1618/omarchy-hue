@@ -10,7 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # Source libraries
-source "$REPO_ROOT/lib/config.sh"
+source "$REPO_ROOT/lib/config.sh" 2>/dev/null || {
+    REPO_ROOT="$HOME/.config/omarchy/omarchy-hue"
+    source "$REPO_ROOT/lib/config.sh" 2>/dev/null || exit 1
+}
 source "$REPO_ROOT/lib/hue-api.sh"
 source "$REPO_ROOT/lib/colors.sh"
 

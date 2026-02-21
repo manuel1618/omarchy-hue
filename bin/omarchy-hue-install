@@ -48,8 +48,10 @@ echo
 echo "Installing scripts to $OMARCHY_BIN_DIR..."
 cp "$REPO_ROOT/bin/omarchy-hue-sync" "$OMARCHY_BIN_DIR/"
 cp "$REPO_ROOT/bin/omarchy-hue-setup" "$OMARCHY_BIN_DIR/"
+cp "$REPO_ROOT/bin/omarchy-hue-uninstall" "$OMARCHY_BIN_DIR/"
 chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-sync"
 chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-setup"
+chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-uninstall"
 echo "✓ Scripts installed"
 echo
 
@@ -59,12 +61,19 @@ mkdir -p "$CONFIG_INSTALL_DIR"
 cp -r "$REPO_ROOT/lib" "$CONFIG_INSTALL_DIR/"
 
 # Preserve existing config if any
-if [[ -d "$REPO_ROOT/.config" ]]; then
+if [[ -d "$REPO_ROOT/.config" ]] && [[ "$(ls -A "$REPO_ROOT/.config" 2>/dev/null)" ]]; then
     echo "Copying configuration files..."
-    cp -r "$REPO_ROOT/.config" "$CONFIG_INSTALL_DIR/" 2>/dev/null || true
+    cp -r "$REPO_ROOT/.config" "$CONFIG_INSTALL_DIR/"
+    echo "✓ Configuration copied"
+else
+    # Check if config exists in installed location from previous run
+    if [[ ! -f "$CONFIG_INSTALL_DIR/.config/hue-credentials.json" ]]; then
+        echo "Warning: No configuration found."
+        echo "Run 'omarchy-hue-setup' after installation to configure."
+    fi
 fi
 
-echo "✓ Libraries installed"
+echo "✓ Libraries and config installed"
 echo
 
 # Patch omarchy-theme-set
@@ -125,8 +134,9 @@ fi
 
 echo
 echo "Commands available:"
-echo "  omarchy-hue-setup  - Interactive setup (bridge, room, brightness)"
-echo "  omarchy-hue-sync   - Manual sync current theme to lights"
+echo "  omarchy-hue-setup    - Interactive setup (bridge, room, brightness)"
+echo "  omarchy-hue-sync     - Manual sync current theme to lights"
+echo "  omarchy-hue-uninstall - Remove installation"
 echo
 echo "View logs: journalctl -t omarchy-hue -f"
-echo "To uninstall: cd $REPO_ROOT && ./bin/omarchy-hue-uninstall"
+echo "To uninstall: omarchy-hue-uninstall"
