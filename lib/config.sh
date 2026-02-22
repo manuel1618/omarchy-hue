@@ -17,10 +17,12 @@ HUE_CREDENTIALS="$CONFIG_DIR/hue-credentials.json"
 ROOM_CONFIG="$CONFIG_DIR/selected_room.json"
 BRIGHTNESS_CONFIG="$CONFIG_DIR/brightness.json"
 ROOM_LIGHTS_CACHE="$CONFIG_DIR/room-lights.json"
+MODE_CONFIG="$CONFIG_DIR/mode.json"
 
 # Defaults
 DEFAULT_BRIGHTNESS=20
 BRIGHTNESS_VARIATION=10
+DEFAULT_MODE="group"
 
 # Ensure config directory exists
 mkdir -p "$CONFIG_DIR"
@@ -156,4 +158,25 @@ config_check_dependencies() {
 
 config_get_variation() {
     echo "$BRIGHTNESS_VARIATION"
+}
+
+# ============================================================================
+# Mode Functions (group vs individual)
+# ============================================================================
+
+config_get_mode() {
+    if [[ -f "$MODE_CONFIG" ]]; then
+        local mode
+        mode=$(jq -r '.mode // empty' "$MODE_CONFIG" 2>/dev/null)
+        if [[ -n "$mode" ]]; then
+            echo "$mode"
+            return
+        fi
+    fi
+    echo "$DEFAULT_MODE"
+}
+
+config_save_mode() {
+    local mode="$1"
+    jq -n --arg m "$mode" '{mode: $m}' > "$MODE_CONFIG"
 }
