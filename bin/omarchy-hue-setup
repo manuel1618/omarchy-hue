@@ -76,17 +76,18 @@ show_menu() {
     echo "  2. Connect to Bridge" >&2
     echo "  3. Select Room" >&2
     echo "  4. Sync Current Theme" >&2
-    echo "  5. Set Brightness (current: ${BRIGHTNESS}%)" >&2
-    echo "  6. Exit" >&2
+    echo "  5. Show Color Probabilities" >&2
+    echo "  6. Set Brightness (current: ${BRIGHTNESS}%)" >&2
+    echo "  7. Exit" >&2
     echo >&2
     
     while true; do
-        read -rp "Enter choice (1-6): " choice
-        if [[ "$choice" =~ ^[1-6]$ ]]; then
+        read -rp "Enter choice (1-7): " choice
+        if [[ "$choice" =~ ^[1-7]$ ]]; then
             echo "$choice"
             return
         fi
-        echo "Invalid choice. Please enter 1-6." >&2
+        echo "Invalid choice. Please enter 1-7." >&2
     done
 }
 
@@ -253,7 +254,6 @@ sync_theme() {
     echo "🎨 Current theme: $theme"
     echo
     
-    # Get palette
     local palette
     palette=$(colors_get_palette)
     
@@ -267,103 +267,71 @@ sync_theme() {
     echo "Weighted palette: $palette_count colors"
     echo
     
-    # Get room lights
-    echo "📍 Fetching lights in $ROOM_NAME..."
+    local variation
+    variation=$(config_get_variation)
+    local base_brightness
+    base_brightness=$(config_get_brightness)
+    
+    echo "📍 Getting lights in $ROOM_NAME..."
     local lights
-    lights=$(hue_get_room_lights "$ROOM_ID" "$BRIDGE_IP" "$USERNAME")
+    lights=$(config_get_cached_room_lights "$ROOM_ID")
+    
+    if [[ -z "$lights" ]] || [[ "$lights" == "[]" ]]; then
+        lights=$(config_refresh_room_lights "$ROOM_ID" "$BRIDGE_IP" "$USERNAME")
+    fi
     
     if [[ "$lights" == "[]" ]] || [[ -z "$lights" ]]; then
         echo "✗ No lights found in selected room"
         return
     fi
     
-    # Filter color-capable lights
-    local light_ids
-    light_ids=$(echo "$lights" | jq -r '.[].id')
+    local light_count
+    light_count=$(echo "$lights" | jq 'length')
     
-    local color_lights=()
-    while IFS= read -r light_id; do
-        if hue_light_supports_color "$light_id" "$BRIDGE_IP" "$USERNAME"; then
-            color_lights+=("$light_id")
-        fi
-    done <<< "$light_ids"
-    
-    local total_lights
-    total_lights=$(echo "$lights" | jq '. | length')
-    echo "Found $total_lights light(s), ${#color_lights[@]} support color"
-    echo
-    
-    if [[ ${#color_lights[@]} -eq 0 ]]; then
-        echo "⚠ No color-capable lights in this room"
-        echo "   Only color bulbs can be synced"
+    if [[ "$light_count" -eq 0 ]]; then
+        echo "✗ No lights in room"
         return
     fi
     
-    # Sync lights
-    echo "💡 Syncing colors to lights..."
-    local variation
-    variation=$(config_get_variation)
-    local min_bri=$((BRIGHTNESS - variation))
-    local max_bri=$((BRIGHTNESS + variation))
-    min_bri=$((min_bri < 0 ? 0 : min_bri))
-    max_bri=$((max_bri > 100 ? 100 : max_bri))
-    echo "   Brightness: ${BRIGHTNESS}% (range: ${min_bri}%-${max_bri}%)"
+    echo "Found $light_count light(s) in $ROOM_NAME"
+    echo "   Brightness: ${base_brightness}% (range: $((base_brightness - variation < 0 ? 0 : base_brightness - variation))%-$((base_brightness + variation > 100 ? 100 : base_brightness + variation))%)"
     echo "   Colors will have ±5% variation for variety"
     echo
     
-    local success_count=0
+    echo "💡 Syncing theme to room..."
     
-    for light_id in "${color_lights[@]}"; do
-        # Get light name
-        local light_name
-        light_name=$(echo "$lights" | jq -r --arg id "$light_id" '.[] | select(.id == $id) | .name')
-        
-        # Pick weighted color
-        local color_info
-        color_info=$(colors_pick_weighted "$palette")
-        IFS=':' read -r color_name hex_color <<< "$color_info"
-        
-        # Add variation
-        hex_color=$(colors_add_variation "$hex_color" 5)
-        
-        # Convert to XY
-        local xy
-        xy=$(colors_hex_to_xy "$hex_color")
-        read -r xy_x xy_y <<< "$xy"
-        
-        # Clamp to gamut
-        xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
-        read -r xy_x xy_y <<< "$xy"
-        
-        # Get randomized brightness
-        local light_brightness
-        light_brightness=$(colors_get_randomized_brightness "$BRIGHTNESS" "$variation")
-        
-        # Round xy values (force C locale for decimal point)
-        xy_x=$(LC_NUMERIC=C printf "%.4f" "$xy_x")
-        xy_y=$(LC_NUMERIC=C printf "%.4f" "$xy_y")
-        
-        # Build state JSON
-        local state_json
-        state_json=$(jq -n \
-            --argjson bri "$light_brightness" \
-            --argjson x "$xy_x" \
-            --argjson y "$xy_y" \
-            '{on: true, bri: $bri, xy: [$x, $y]}')
-        
-        # Apply to light
-        if hue_set_light_state "$light_id" "$state_json" "$BRIDGE_IP" "$USERNAME"; then
-            local bri_percent=$(( (light_brightness * 100) / 254 ))
-            echo "  ✓ $light_name → $color_name ($hex_color) @ ${bri_percent}%"
-            ((success_count++))
-        else
-            echo "  ✗ $light_name → Failed"
-        fi
-    done
+    local color_info
+    color_info=$(colors_pick_weighted "$palette")
+    IFS=':' read -r color_name hex_color <<< "$color_info"
     
+    hex_color=$(colors_add_variation "$hex_color" 5)
+    
+    local xy
+    xy=$(colors_hex_to_xy "$hex_color")
+    read -r xy_x xy_y <<< "$xy"
+    
+    xy=$(colors_clamp_gamut "$xy_x" "$xy_y")
+    read -r xy_x xy_y <<< "$xy"
+    
+    local brightness
+    brightness=$(colors_get_randomized_brightness "$base_brightness" "$variation")
+    
+    xy_x=$(LC_NUMERIC=C printf "%.4f" "$xy_x")
+    xy_y=$(LC_NUMERIC=C printf "%.4f" "$xy_y")
+    
+    local action_json
+    action_json=$(jq -n \
+        --argjson bri "$brightness" \
+        --argjson x "$xy_x" \
+        --argjson y "$xy_y" \
+        '{on: true, bri: $bri, xy: [$x, $y]}')
+    
+    hue_set_group_action "$ROOM_ID" "$action_json" "$BRIDGE_IP" "$USERNAME"
+    
+    local bri_percent=$(( (brightness * 100) / 254 ))
+    echo "  ✓ $ROOM_NAME → $color_name ($hex_color) @ ${bri_percent}%"
     echo
-    echo "✓ Synced $success_count/${#color_lights[@]} lights"
-    echo "  with $theme weighted palette colors!"
+    echo "✓ Synced $light_count lights with $theme theme!"
 }
 
 set_brightness() {
@@ -399,6 +367,84 @@ set_brightness() {
             echo "Please enter a value between 1 and 100."
         fi
     done
+}
+
+show_color_probabilities() {
+    clear_screen
+    print_header
+    
+    local theme
+    theme=$(colors_get_current_theme)
+    echo "🎨 Current theme: $theme"
+    echo
+    echo "Color probabilities for weighted random selection:"
+    echo "------------------------------------------------------------"
+    
+    local palette
+    palette=$(colors_get_palette)
+    
+    if [[ -z "$palette" ]]; then
+        echo "✗ No colors found for current theme"
+        return
+    fi
+    
+    local -a names=()
+    local -a hexes=()
+    local -a weights=()
+    
+    while IFS=':' read -r name hex weight; do
+        local int_weight
+        if [[ "$weight" == "0.3" ]]; then
+            int_weight=3
+        elif [[ "$weight" == "1" ]]; then
+            int_weight=10
+        elif [[ "$weight" == "3" ]]; then
+            int_weight=30
+        else
+            int_weight=$(printf "%.0f" "${weight//./}0" 2>/dev/null || echo 10)
+        fi
+        
+        names+=("$name")
+        hexes+=("$hex")
+        weights+=("$int_weight")
+    done <<< "$palette"
+    
+    local total_weight=0
+    for w in "${weights[@]}"; do
+        total_weight=$((total_weight + w))
+    done
+    
+    for i in "${!names[@]}"; do
+        local probability=$(( weights[i] * 1000 / total_weight ))
+        local prob_decimal=$(( probability % 10 ))
+        probability=$(( probability / 10 ))
+        
+        local bar_length=$(( probability / 5 ))
+        local bar=""
+        for ((j=0; j<bar_length; j++)); do
+            bar+="█"
+        done
+        
+        local hex="${hexes[i]}"
+        local r=$((16#${hex:1:2}))
+        local g=$((16#${hex:3:2}))
+        local b=$((16#${hex:5:2}))
+        
+        local bg_rgb="48;2;$r;$g;$b"
+        local fg_rgb="38;2;$r;$g;$b"
+        
+        local contrast=$(( (r*299 + g*587 + b*114) / 1000 ))
+        if [[ $contrast -gt 128 ]]; then
+            printf "  \033[%sm  \033[0m %-20s %s %2d.%d%% " "$bg_rgb" "${names[i]}" "$hex" "$probability" "$prob_decimal"
+        else
+            printf "  \033[%sm  \033[0m %-20s %s %2d.%d%% " "$bg_rgb" "${names[i]}" "$hex" "$probability" "$prob_decimal"
+        fi
+        printf "%-${bar_length}s\n" "$bar"
+    done
+    
+    echo "------------------------------------------------------------"
+    echo "Total colors: ${#names[@]}"
+    echo "Total weight: $total_weight"
 }
 
 # ============================================================================
@@ -447,10 +493,14 @@ main() {
                 read -rp $'\nPress Enter to continue...'
                 ;;
             5)
-                set_brightness
+                show_color_probabilities
                 read -rp $'\nPress Enter to continue...'
                 ;;
             6)
+                set_brightness
+                read -rp $'\nPress Enter to continue...'
+                ;;
+            7)
                 clear_screen
                 echo
                 echo "👋 Goodbye!"
