@@ -24,6 +24,11 @@ if [[ -f "$OMARCHY_BIN_DIR/omarchy-hue-setup" ]]; then
     echo "✓ Removed omarchy-hue-setup"
 fi
 
+if [[ -f "$OMARCHY_BIN_DIR/omarchy-hue-reset" ]]; then
+    rm "$OMARCHY_BIN_DIR/omarchy-hue-reset"
+    echo "✓ Removed omarchy-hue-reset"
+fi
+
 # Restore omarchy-theme-set from backup
 if [[ -f "$THEME_SET_BACKUP" ]]; then
     mv "$THEME_SET_BACKUP" "$THEME_SET_SCRIPT"

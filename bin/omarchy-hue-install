@@ -48,9 +48,11 @@ echo
 echo "Installing scripts to $OMARCHY_BIN_DIR..."
 cp "$REPO_ROOT/bin/omarchy-hue-sync" "$OMARCHY_BIN_DIR/"
 cp "$REPO_ROOT/bin/omarchy-hue-setup" "$OMARCHY_BIN_DIR/"
+cp "$REPO_ROOT/bin/omarchy-hue-reset" "$OMARCHY_BIN_DIR/"
 cp "$REPO_ROOT/bin/omarchy-hue-uninstall" "$OMARCHY_BIN_DIR/"
 chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-sync"
 chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-setup"
+chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-reset"
 chmod +x "$OMARCHY_BIN_DIR/omarchy-hue-uninstall"
 echo "✓ Scripts installed"
 echo
@@ -132,8 +134,9 @@ fi
 
 echo
 echo "Commands available:"
-echo "  omarchy-hue-setup    - Interactive setup (bridge, room, brightness)"
+echo "  omarchy-hue-setup    - Interactive setup (bridge, room, brightness, mode)"
 echo "  omarchy-hue-sync     - Manual sync current theme to lights"
+echo "  omarchy-hue-reset   - Reset lights to white"
 echo "  omarchy-hue-uninstall - Remove installation"
 echo
 echo "View logs: journalctl -t omarchy-hue -f"
