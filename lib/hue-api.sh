@@ -209,15 +209,3 @@ hue_set_group_action() {
     
     hue_api_put "/groups/$group_id/action" "$action_json" "$bridge_ip" "$username" >/dev/null
 }
-
-hue_light_supports_color() {
-    local light_id="$1"
-    local bridge_ip="$2"
-    local username="$3"
-    
-    local response
-    response=$(hue_api_get "/lights/$light_id" "$bridge_ip" "$username")
-    
-    # Check if state has xy or hue
-    echo "$response" | jq -e '.state | has("xy") or has("hue")' &>/dev/null
-}
