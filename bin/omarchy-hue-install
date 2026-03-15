@@ -13,6 +13,8 @@ OMARCHY_BIN_DIR="$HOME/.local/share/omarchy/bin"
 THEME_SET_SCRIPT="$OMARCHY_BIN_DIR/omarchy-theme-set"
 CONFIG_INSTALL_DIR="$HOME/.config/omarchy/omarchy-hue"
 
+source "$REPO_ROOT/lib/patch-theme.sh"
+
 echo "=== Omarchy-Hue Installer ==="
 echo
 
@@ -79,42 +81,9 @@ echo "✓ Libraries and config installed"
 echo
 
 # Patch omarchy-theme-set
-if [[ ! -f "$THEME_SET_SCRIPT" ]]; then
-    echo "Warning: omarchy-theme-set not found at: $THEME_SET_SCRIPT"
-    echo "You'll need to manually call omarchy-hue-sync after theme changes"
-    echo
-else
-    # Check if already patched
-    if grep -q "# Omarchy-Hue Integration" "$THEME_SET_SCRIPT"; then
-        echo "✓ omarchy-theme-set already patched (skipping)"
-    else
-        # Create backup
-        if [[ ! -f "${THEME_SET_SCRIPT}.backup-hue" ]]; then
-            cp "$THEME_SET_SCRIPT" "${THEME_SET_SCRIPT}.backup-hue"
-            echo "✓ Created backup: ${THEME_SET_SCRIPT}.backup-hue"
-        fi
-        
-        # Find the line with "omarchy-hook theme-set" and insert before it
-        if grep -q "^omarchy-hook theme-set" "$THEME_SET_SCRIPT"; then
-            # Remove any existing omarchy-hue integration
-            sed -i '/# Omarchy-Hue Integration/,/^fi$/d' "$THEME_SET_SCRIPT"
-            
-            # Insert at TOP of script (runs in parallel with rest)
-            sed -i '1a\
-# Omarchy-Hue Integration - Sync lights with theme (runs in parallel)\
-if command -v omarchy-hue-sync &>/dev/null; then\
-  (omarchy-hue-sync 2>&1 | logger -t omarchy-hue) &\
-fi\
-' "$THEME_SET_SCRIPT"
-            
-            echo "✓ Patched omarchy-theme-set for automatic sync"
-        else
-            echo "Warning: Could not find 'omarchy-hook theme-set' line in script"
-            echo "Manual integration may be required"
-        fi
-    fi
-    echo
-fi
+echo "Patching omarchy-theme-set..."
+patch_set_theme || true
+echo
 
 # Summary
 echo "=== Installation Complete ==="

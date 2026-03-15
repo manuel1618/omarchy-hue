@@ -1,14 +1,17 @@
 #!/bin/bash
 # Omarchy-Hue Uninstallation Script
-# Removes scripts from omarchy bins and restores omarchy-theme-set
+# Removes scripts from omarchy bins and unpatch omarchy-theme-set
 
 set -e
 
-# Installation paths
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
 OMARCHY_BIN_DIR="$HOME/.local/share/omarchy/bin"
 THEME_SET_SCRIPT="$OMARCHY_BIN_DIR/omarchy-theme-set"
-THEME_SET_BACKUP="${THEME_SET_SCRIPT}.backup-hue"
 CONFIG_INSTALL_DIR="$HOME/.config/omarchy/omarchy-hue"
+
+source "$REPO_ROOT/lib/patch-theme.sh"
 
 echo "=== Omarchy-Hue Uninstaller ==="
 echo
@@ -29,20 +32,9 @@ if [[ -f "$OMARCHY_BIN_DIR/omarchy-hue-reset" ]]; then
     echo "✓ Removed omarchy-hue-reset"
 fi
 
-# Restore omarchy-theme-set from backup
-if [[ -f "$THEME_SET_BACKUP" ]]; then
-    mv "$THEME_SET_BACKUP" "$THEME_SET_SCRIPT"
-    echo "✓ Restored omarchy-theme-set from backup"
-else
-    # Try to remove patch manually if no backup
-    if [[ -f "$THEME_SET_SCRIPT" ]] && grep -q "# Omarchy-Hue Integration" "$THEME_SET_SCRIPT"; then
-        echo "Removing Omarchy-Hue patch from omarchy-theme-set..."
-        # Remove the 4-line patch block
-        sed -i '/# Omarchy-Hue Integration/,+3d' "$THEME_SET_SCRIPT"
-        echo "✓ Removed patch from omarchy-theme-set"
-    fi
-fi
-
+# Unpatch omarchy-theme-set (non-intrusive - leaves current version intact)
+echo "Cleaning up omarchy-theme-set patch..."
+unpatch_set_theme
 echo
 
 # Ask about config
