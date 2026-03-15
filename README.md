@@ -2,13 +2,22 @@
 
 Sync Omarchy theme colors with Philips Hue lights.
 
-## Quick Start
+## Installation
+
+**Prerequisite:** Omarchy must be installed first.
 
 ```bash
-git clone ~/omarchy-hue ~/omarchy-hue
-cd ~/omarchy-hue
-./bin/omarchy-hue-setup
-./bin/omarchy-hue-install
+# Clone this repository
+git clone https://github.com/manuel1618/omarchy-hue.git ~/omarchy-hue
+
+# Run the installer (requires Omarchy to be installed)
+~/omarchy-hue/bin/omarchy-hue-install
+```
+
+After installation, run the setup to configure your Hue bridge:
+
+```bash
+omarchy-hue-setup
 ```
 
 Lights sync automatically when you change themes via `omarchy-theme-set`.
